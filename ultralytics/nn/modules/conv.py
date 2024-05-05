@@ -360,6 +360,7 @@ class CBAM(nn.Module):
         self.cv2 = Conv(c_, c2, 3, 1, g=g)
         self.add = shortcut and c1 == c2
         self.channel_attention = ChannelAttention(c2, ratio)
+        self.spatial_attention = SpatialAttention(kernel_size)
 
     def forward(self, x):
         """
