@@ -13,6 +13,7 @@ from ultralytics.nn.modules import (
     C2,
     C3,
     C3TR,
+    CBAM,
     OBB,
     SPP,
     SPPELAN,
@@ -885,6 +886,7 @@ def parse_model(d, ch, verbose=True):  # model_dict, input_channels(3)
             DWConvTranspose2d,
             C3x,
             RepC3,
+            CBAM,
         }:
             c1, c2 = ch[f], args[0]
             if c2 != nc:  # if c2 not equal to number of classes (i.e. for Classify() output)
