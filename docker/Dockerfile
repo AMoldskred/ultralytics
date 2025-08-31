@@ -1,14 +1,21 @@
-# Ultralytics YOLO 🚀, AGPL-3.0 license
-# Builds ultralytics/ultralytics:latest image on DockerHub https://hub.docker.com/r/ultralytics/ultralytics
-# Image is CUDA-optimized for YOLOv8 single/multi-GPU training and inference
+# Ultralytics 🚀 AGPL-3.0 License - https://ultralytics.com/license
 
-# Start FROM PyTorch image https://hub.docker.com/r/pytorch/pytorch or nvcr.io/nvidia/pytorch:23.03-py3
-FROM pytorch/pytorch:2.3.1-cuda12.1-cudnn8-runtime
+# Builds ultralytics/ultralytics:latest image on DockerHub https://hub.docker.com/r/ultralytics/ultralytics
+# Image is CUDA-optimized for YOLO single/multi-GPU training and inference
+
+# Start FROM PyTorch image https://hub.docker.com/r/pytorch/pytorch or nvcr.io/nvidia/pytorch:25.02-py3
+FROM pytorch/pytorch:2.8.0-cuda12.8-cudnn9-runtime
 
 # Set environment variables
-ENV APP_HOME /usr/src/ultralytics
-# Avoid DDP error "MKL_THREADING_LAYER=INTEL is incompatible with libgomp.so.1 library" https://github.com/pytorch/pytorch/issues/37377
-ENV MKL_THREADING_LAYER=GNU
+# Avoid DDP error "MKL_THREADING_LAYER=INTEL is incompatible with libgomp.so.1 library"
+# Suppress TensorFlow cuDNN, cuBLAS, and cuFFT Registration Warnings
+ENV PYTHONUNBUFFERED=1 \
+    PYTHONDONTWRITEBYTECODE=1 \
+    PIP_NO_CACHE_DIR=1 \
+    PIP_BREAK_SYSTEM_PACKAGES=1 \
+    MKL_THREADING_LAYER=GNU \
+    OMP_NUM_THREADS=1 \
+    TF_CPP_MIN_LOG_LEVEL=3
 
 # Downloads to user config dir
 ADD https://github.com/ultralytics/assets/releases/download/v0.0.0/Arial.ttf \
@@ -16,39 +23,28 @@ ADD https://github.com/ultralytics/assets/releases/download/v0.0.0/Arial.ttf \
     /root/.config/Ultralytics/
 
 # Install linux packages
-# g++ required to build 'tflite_support' and 'lap' packages, libusb-1.0-0 required for 'tflite_support' package
+# gnupg required for Edge TPU install
 # libsm6 required by libqxcb to create QT-based windows for visualization; set 'QT_DEBUG_PLUGINS=1' to test in docker
-RUN apt update \
-    && apt install --no-install-recommends -y gcc git zip unzip wget curl htop libgl1 libglib2.0-0 libpython3-dev gnupg g++ libusb-1.0-0 libsm6
-
-# Security updates
-# https://security.snyk.io/vuln/SNYK-UBUNTU1804-OPENSSL-3314796
-RUN apt upgrade --no-install-recommends -y openssl tar
+RUN apt-get update && \
+    apt-get install -y --no-install-recommends \
+    gcc git zip unzip wget curl htop libgl1 libglib2.0-0 gnupg libsm6 && \
+    apt-get clean && \
+    rm -rf /var/lib/apt/lists/*
 
 # Create working directory
-WORKDIR $APP_HOME
+WORKDIR /ultralytics
 
-# Copy contents and assign permissions
-COPY . $APP_HOME
-RUN git remote set-url origin https://github.com/ultralytics/ultralytics.git
-ADD https://github.com/ultralytics/assets/releases/download/v8.2.0/yolov8n.pt $APP_HOME
+# Copy contents and configure git
+COPY . .
+RUN sed -i '/^\[http "https:\/\/github\.com\/"\]/,+1d' .git/config && \
+    sed -i'' -e 's/"opencv-python/"opencv-python-headless/' pyproject.toml
+ADD https://github.com/ultralytics/assets/releases/download/v8.3.0/yolo11n.pt .
 
 # Install pip packages
-RUN python3 -m pip install --upgrade pip wheel
-# Pin TensorRT-cu12==10.1.0 to avoid 10.2.0 bug https://github.com/ultralytics/ultralytics/pull/14239 (note -cu12 must be used)
-RUN pip install --no-cache-dir -e ".[export]" "tensorrt-cu12==10.1.0" "albumentations>=1.4.6" comet pycocotools
-
-# Run exports to AutoInstall packages
-# Edge TPU export fails the first time so is run twice here
-RUN yolo export model=tmp/yolov8n.pt format=edgetpu imgsz=32 || yolo export model=tmp/yolov8n.pt format=edgetpu imgsz=32
-RUN yolo export model=tmp/yolov8n.pt format=ncnn imgsz=32
-# Requires <= Python 3.10, bug with paddlepaddle==2.5.0 https://github.com/PaddlePaddle/X2Paddle/issues/991
-RUN pip install --no-cache-dir "paddlepaddle>=2.6.0" x2paddle
-# Fix error: `np.bool` was a deprecated alias for the builtin `bool` segmentation error in Tests
-RUN pip install --no-cache-dir numpy==1.23.5
-# Remove exported models
-RUN rm -rf tmp
-
+RUN pip install uv && \
+    uv pip install --system -e "." albumentations faster-coco-eval wandb && \
+    # Remove extra build files \
+    rm -rf tmp /root/.config/Ultralytics/persistent_cache.json
 
 # Usage Examples -------------------------------------------------------------------------------------------------------
 
@@ -62,7 +58,7 @@ RUN rm -rf tmp
 # t=ultralytics/ultralytics:latest && sudo docker pull $t && sudo docker run -it --ipc=host --gpus '"device=2,3"' $t
 
 # Pull and Run with local directory access
-# t=ultralytics/ultralytics:latest && sudo docker pull $t && sudo docker run -it --ipc=host --gpus all -v "$(pwd)"/shared/datasets:/usr/src/datasets $t
+# t=ultralytics/ultralytics:latest && sudo docker pull $t && sudo docker run -it --ipc=host --gpus all -v "$(pwd)"/shared/datasets:/datasets $t
 
 # Kill all
 # sudo docker kill $(sudo docker ps -q)
